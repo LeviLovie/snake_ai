@@ -1,20 +1,16 @@
-use rand::Rng;
 use raylib::prelude::*;
-use std::{
-    clone,
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
 
 use super::{snake, Args, Commands, SnakeStyle};
 
 pub struct Renderer {
     pub snake: Arc<Mutex<snake::Snake>>,
-    pub food: snake::Point,
     pub width: u32,
     pub height: u32,
     pub died: bool,
+    pub restart: bool,
 
-    next_snake_direction: snake::Direction,
+    input_queue: Vec<snake::Direction>,
     snake_counter: u32,
 
     args: Args,
@@ -32,16 +28,14 @@ impl Renderer {
             .title("Snake")
             .build();
 
-        let food = snake::Point::new(width as i32 / 4 * 3, height as i32 / 2);
-
         Renderer {
             snake,
-            food,
             width,
             height,
             died: false,
+            restart: false,
 
-            next_snake_direction: snake::Direction::Right,
+            input_queue: Vec::new(),
             snake_counter: 0,
 
             args,
@@ -63,58 +57,64 @@ impl Renderer {
     pub fn prepare(&mut self) {
         self.died = false;
 
-        self.food.x = self.width as i32 / 4 * 3;
-        self.food.y = self.height as i32 / 2;
-
-        self.next_snake_direction = snake::Direction::Right;
+        self.input_queue.clear();
 
         let mut snake = self.snake.lock().unwrap();
         snake.prepare();
     }
 
     pub fn update(&mut self) {
+        if self.restart {
+            self.prepare();
+            self.restart = false;
+        }
         if self.died {
             if self.rl.is_key_pressed(KeyboardKey::KEY_ENTER)
                 || self.rl.is_key_pressed(KeyboardKey::KEY_SPACE)
             {
-                self.prepare();
+                self.restart = true;
             }
         } else {
+            let mut snake = self.snake.lock().unwrap();
+            let snake_update_time;
+            if self.args.fps >= 30 {
+                snake_update_time = 5 * (self.args.fps / 30);
+            } else {
+                snake_update_time = 1;
+            }
+            if self.snake_counter % snake_update_time == 0 {
+                if !self.input_queue.is_empty() {
+                    snake.turn(self.input_queue.pop().unwrap());
+                }
+
+                snake.update();
+            }
+            self.snake_counter += 1;
+
+            if self.rl.is_key_pressed(KeyboardKey::KEY_R) {
+                self.restart = true;
+            }
+
             match self.args.cmd {
                 Commands::Play => {
-                    let mut snake = self.snake.lock().unwrap();
-                    if self.snake_counter % 5 == 0 {
-                        snake.move_forward();
-
-                        if snake.body[0] == self.food {
-                            snake.grow();
-                            // Randomize new food position from 0 to width and 0 to height
-                            self.food = snake::Point::new(
-                                rand::thread_rng().gen_range(0..self.width as i32),
-                                rand::thread_rng().gen_range(0..self.height as i32),
-                            );
-                        }
-
-                        snake.turn(self.next_snake_direction);
-                    }
-                    self.snake_counter += 1;
-
                     if self.rl.is_key_pressed(KeyboardKey::KEY_UP) {
-                        self.next_snake_direction = snake::Direction::Up;
+                        self.input_queue.push(snake::Direction::Up);
+                        snake.start();
                     } else if self.rl.is_key_pressed(KeyboardKey::KEY_DOWN) {
-                        self.next_snake_direction = snake::Direction::Down;
+                        self.input_queue.push(snake::Direction::Down);
+                        snake.start();
                     } else if self.rl.is_key_pressed(KeyboardKey::KEY_LEFT) {
-                        self.next_snake_direction = snake::Direction::Left;
+                        self.input_queue.push(snake::Direction::Left);
+                        snake.start();
                     } else if self.rl.is_key_pressed(KeyboardKey::KEY_RIGHT) {
-                        self.next_snake_direction = snake::Direction::Right;
-                    }
-
-                    if snake.collides_with_wall(self.width, self.height)
-                        || snake.collides_with_self()
-                    {
-                        self.died = true;
+                        self.input_queue.push(snake::Direction::Right);
+                        snake.start();
                     }
                 }
+            }
+
+            if snake.collides_with_wall(self.width, self.height) || snake.collides_with_self() {
+                self.died = true;
             }
         }
     }
@@ -261,12 +261,14 @@ impl Renderer {
         // Draw food
         let food_color = Color::new(231, 71, 29, 255);
         d.draw_rectangle(
-            self.food.x * 20 + 20,
-            self.food.y * 20 + 20,
+            snake.food.x * 20 + 20,
+            snake.food.y * 20 + 20,
             20,
             20,
             food_color,
         );
+        let next_food_color = Color::new(231, 71, 29, 100);
+        d.draw_rectangle(snake.next_food.x * 20 + 20, snake.next_food.y * 20 + 20, 20, 20, next_food_color);
 
         if self.died {
             d.draw_rectangle(

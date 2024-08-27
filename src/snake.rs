@@ -1,4 +1,5 @@
-use std::collections::VecDeque;
+use rand::Rng;
+use std::{collections::VecDeque, process::exit};
 
 use super::Args;
 
@@ -41,6 +42,9 @@ pub struct Snake {
     pub growth: u32,
     pub width: u32,
     pub height: u32,
+    pub food: Point,
+    pub next_food: Point,
+    pub started: bool,
 
     _args: Args,
 }
@@ -54,6 +58,9 @@ impl Snake {
             growth: 0,
             width: args.width,
             height: args.height,
+            food: Point::new(0, 0),
+            next_food: Point::new(0, 0),
+            started: false,
 
             _args: args,
         }
@@ -61,12 +68,21 @@ impl Snake {
 
     pub fn prepare(&mut self) {
         self.body.clear();
-        self.last_tail = Point::new(-1, 0);
-        self.body.push_back(Point::new(2, 0));
-        self.body.push_back(Point::new(1, 0));
-        self.body.push_back(Point::new(0, 0));
+        self.started = false;
+        let x = self.width as i32 / 4;
+        let y = self.height as i32 / 2;
+        self.body.push_back(Point::new(x + 2, y));
+        self.body.push_back(Point::new(x + 1, y));
+        self.body.push_back(Point::new(x, y));
+        self.last_tail = Point::new(x + 3, y);
         self.direction = Direction::Right;
         self.growth = 0;
+        self.food = Point::new(x * 3, y);
+        self.next_food = self.gen_next_food();
+    }
+
+    pub fn start(&mut self) {
+        self.started = true;
     }
 
     pub fn head(&self) -> &Point {
@@ -75,6 +91,37 @@ impl Snake {
 
     pub fn grow(&mut self) {
         self.growth += 1;
+    }
+    
+    fn gen_next_food(&self) -> Point {
+            let mut possible_food_locations = Vec::new();
+            for x in 0..self.width as i32 {
+                for y in 0..self.height as i32 {
+                    let p = Point::new(x, y);
+                    if !self.body.contains(&p) {
+                        possible_food_locations.push(p);
+                    }
+                }
+            }
+            if possible_food_locations.is_empty() {
+                exit(0);
+            }
+            possible_food_locations
+                [rand::thread_rng().gen_range(0..possible_food_locations.len())]
+    }
+
+    pub fn update(&mut self) {
+        if !self.started {
+            return;
+        }
+
+        self.move_forward();
+
+        if self.head() == &self.food {
+            self.grow();
+            self.food = self.next_food;
+            self.next_food = self.gen_next_food();
+        }
     }
 
     pub fn move_forward(&mut self) {
