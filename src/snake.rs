@@ -36,6 +36,7 @@ impl Point {
 #[derive(Clone)]
 pub struct Snake {
     pub body: VecDeque<Point>,
+    pub last_tail: Point,
     pub direction: Direction,
     pub growth: u32,
     pub width: u32,
@@ -46,13 +47,9 @@ pub struct Snake {
 
 impl Snake {
     pub fn new(args: Args) -> Snake {
-        let mut body = VecDeque::new();
-        body.push_back(Point::new(2, 0));
-        body.push_back(Point::new(1, 0));
-        body.push_back(Point::new(0, 0));
-
         Snake {
-            body,
+            body: VecDeque::new(),
+            last_tail: Point::new(0, 0),
             direction: Direction::Right,
             growth: 0,
             width: args.width,
@@ -64,6 +61,7 @@ impl Snake {
 
     pub fn prepare(&mut self) {
         self.body.clear();
+        self.last_tail = Point::new(-1, 0);
         self.body.push_back(Point::new(2, 0));
         self.body.push_back(Point::new(1, 0));
         self.body.push_back(Point::new(0, 0));
@@ -89,7 +87,7 @@ impl Snake {
         }
         self.body.push_front(new_head);
         if self.growth == 0 {
-            self.body.pop_back();
+            self.last_tail = self.body.pop_back().unwrap();
         } else {
             self.growth -= 1;
         }

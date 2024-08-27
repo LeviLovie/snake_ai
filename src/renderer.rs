@@ -1,8 +1,11 @@
 use rand::Rng;
 use raylib::prelude::*;
-use std::sync::{Arc, Mutex};
+use std::{
+    clone,
+    sync::{Arc, Mutex},
+};
 
-use super::{snake, Args, Commands};
+use super::{snake, Args, Commands, SnakeStyle};
 
 pub struct Renderer {
     pub snake: Arc<Mutex<snake::Snake>>,
@@ -10,7 +13,8 @@ pub struct Renderer {
     pub width: u32,
     pub height: u32,
     pub died: bool,
-    
+
+    next_snake_direction: snake::Direction,
     snake_counter: u32,
 
     args: Args,
@@ -37,6 +41,7 @@ impl Renderer {
             height,
             died: false,
 
+            next_snake_direction: snake::Direction::Right,
             snake_counter: 0,
 
             args,
@@ -61,6 +66,8 @@ impl Renderer {
         self.food.x = self.width as i32 / 4 * 3;
         self.food.y = self.height as i32 / 2;
 
+        self.next_snake_direction = snake::Direction::Right;
+
         let mut snake = self.snake.lock().unwrap();
         snake.prepare();
     }
@@ -78,26 +85,28 @@ impl Renderer {
                     let mut snake = self.snake.lock().unwrap();
                     if self.snake_counter % 5 == 0 {
                         snake.move_forward();
+
+                        if snake.body[0] == self.food {
+                            snake.grow();
+                            // Randomize new food position from 0 to width and 0 to height
+                            self.food = snake::Point::new(
+                                rand::thread_rng().gen_range(0..self.width as i32),
+                                rand::thread_rng().gen_range(0..self.height as i32),
+                            );
+                        }
+
+                        snake.turn(self.next_snake_direction);
                     }
                     self.snake_counter += 1;
 
-                    if snake.body[0] == self.food {
-                        snake.grow();
-                        // Randomize new food position from 0 to width and 0 to height
-                        self.food = snake::Point::new(
-                            rand::thread_rng().gen_range(0..self.width as i32),
-                            rand::thread_rng().gen_range(0..self.height as i32),
-                        );
-                    }
-
                     if self.rl.is_key_pressed(KeyboardKey::KEY_UP) {
-                        snake.turn(snake::Direction::Up);
+                        self.next_snake_direction = snake::Direction::Up;
                     } else if self.rl.is_key_pressed(KeyboardKey::KEY_DOWN) {
-                        snake.turn(snake::Direction::Down);
+                        self.next_snake_direction = snake::Direction::Down;
                     } else if self.rl.is_key_pressed(KeyboardKey::KEY_LEFT) {
-                        snake.turn(snake::Direction::Left);
+                        self.next_snake_direction = snake::Direction::Left;
                     } else if self.rl.is_key_pressed(KeyboardKey::KEY_RIGHT) {
-                        snake.turn(snake::Direction::Right);
+                        self.next_snake_direction = snake::Direction::Right;
                     }
 
                     if snake.collides_with_wall(self.width, self.height)
@@ -156,9 +165,97 @@ impl Renderer {
         let body = &snake.body;
         let start_color = Color::new(79, 124, 246, 255);
         let end_color = Color::new(51, 96, 203, 255);
-        for (i, point) in body.iter().enumerate() {
-            let color = Renderer::lerp_color(start_color, end_color, i as f32 / body.len() as f32);
-            d.draw_rectangle(point.x * 20 + 20, point.y * 20 + 20, 20, 20, color);
+
+        match self.args.style {
+            SnakeStyle::Block => {
+                for (i, point) in body.iter().enumerate() {
+                    let color =
+                        Renderer::lerp_color(start_color, end_color, i as f32 / body.len() as f32);
+                    d.draw_rectangle(point.x * 20 + 20, point.y * 20 + 20, 20, 20, color);
+                }
+            }
+            SnakeStyle::Line => {
+                // Draw Snake body
+                for i in 0..snake.body.len() {
+                    let color =
+                        Renderer::lerp_color(start_color, end_color, i as f32 / body.len() as f32);
+
+                    let prev;
+                    let curr = body[i].clone();
+                    let next;
+                    if i == 0 {
+                        next = body[i + 1].clone();
+                        match snake.direction {
+                            snake::Direction::Up => prev = snake::Point::new(curr.x, curr.y - 1),
+                            snake::Direction::Down => prev = snake::Point::new(curr.x, curr.y + 1),
+                            snake::Direction::Left => prev = snake::Point::new(curr.x - 1, curr.y),
+                            snake::Direction::Right => prev = snake::Point::new(curr.x + 1, curr.y),
+                        }
+                    } else if i == snake.body.len() - 1 {
+                        next = snake.last_tail.clone();
+                        prev = body[i - 1].clone();
+                    } else {
+                        prev = body[i - 1].clone();
+                        next = body[i + 1].clone();
+                    }
+
+                    if prev.x == next.x {
+                        // Draw Vertical Line
+                        d.draw_rectangle(curr.x * 20 + 20 + 5, curr.y * 20 + 20, 10, 20, color);
+                    } else if prev.y == next.y {
+                        // Draw Horizontal Line
+                        d.draw_rectangle(curr.x * 20 + 20, curr.y * 20 + 20 + 5, 20, 10, color);
+                    } else {
+                        if (prev.x < curr.x && next.y < curr.y)
+                            || (next.x < curr.x && prev.y < curr.y)
+                        {
+                            // Top left corner
+                            d.draw_rectangle(curr.x * 20 + 20 + 5, curr.y * 20 + 20, 10, 15, color);
+                            d.draw_rectangle(curr.x * 20 + 20, curr.y * 20 + 20 + 5, 15, 10, color);
+                        } else if (prev.x < curr.x && next.y > curr.y)
+                            || (next.x < curr.x && prev.y > curr.y)
+                        {
+                            // Bottom left corner
+                            d.draw_rectangle(
+                                curr.x * 20 + 20 + 5,
+                                curr.y * 20 + 20 + 5,
+                                10,
+                                15,
+                                color,
+                            );
+                            d.draw_rectangle(curr.x * 20 + 20, curr.y * 20 + 20 + 5, 15, 10, color);
+                        } else if (prev.x > curr.x && next.y < curr.y)
+                            || (next.x > curr.x && prev.y < curr.y)
+                        {
+                            // Top right corner
+                            d.draw_rectangle(curr.x * 20 + 20 + 5, curr.y * 20 + 20, 10, 15, color);
+                            d.draw_rectangle(
+                                curr.x * 20 + 20 + 5,
+                                curr.y * 20 + 20 + 5,
+                                15,
+                                10,
+                                color,
+                            );
+                        } else {
+                            // Bottom right corner
+                            d.draw_rectangle(
+                                curr.x * 20 + 20 + 5,
+                                curr.y * 20 + 20 + 5,
+                                10,
+                                15,
+                                color,
+                            );
+                            d.draw_rectangle(
+                                curr.x * 20 + 20 + 5,
+                                curr.y * 20 + 20 + 5,
+                                15,
+                                10,
+                                color,
+                            );
+                        }
+                    }
+                }
+            }
         }
 
         // Draw food
